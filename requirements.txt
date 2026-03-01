@@ -6,5 +6,5 @@ plotly
 textblob
 nltk
 scikit-learn
-alpaca-trade-api
+alpaca-py
 praw
