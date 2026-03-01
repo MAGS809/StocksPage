@@ -7,3 +7,4 @@ textblob
 nltk
 scikit-learn
 alpaca-py
+praw
