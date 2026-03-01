@@ -4,5 +4,6 @@ pandas
 numpy
 plotly
 textblob
-alpaca-py
 nltk
+scikit-learn
+alpaca-py
