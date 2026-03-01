@@ -7,5 +7,4 @@ textblob
 nltk
 scikit-learn
 alpaca-trade-api
-
 praw
