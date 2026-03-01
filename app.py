@@ -7,29 +7,7 @@ import nltk
 from textblob import TextBlob
 from alpaca.data.requests import NewsRequest
 from alpaca.data.historical import StockHistoricalDataClient
-from datetime import datetime, timedeltable
-# --- LIVE EXECUTION ENGINE ---
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
-
-def execute_alpaca_order(ticker, side, qty):
-    try:
-        api_key = st.secrets["ALPACA_API_KEY"]
-        secret_key = st.secrets["ALPACA_SECRET_KEY"]
-        client = TradingClient(api_key, secret_key, paper=True)
-        
-        order_data = MarketOrderRequest(
-            symbol=ticker,
-            qty=qty,
-            side=side,
-            time_in_force=TimeInForce.GTC
-        )
-        client.submit_order(order_data=order_data)
-        return True, None
-    except Exception as e:
-        return False, str(e)
-# ----------------------------
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # NLTK SETUP
@@ -94,7 +72,6 @@ def calculate_atr(df, period=14):
     df["True_Range"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     df["ATR"] = df["True_Range"].rolling(period, min_periods=period).mean()
     return df
-
 # ---------------------------------------------------------------------------
 # 4. NEWS SENTIMENT VIA ALPACA
 # ---------------------------------------------------------------------------
@@ -365,35 +342,23 @@ def render_ui():
             "slippage, gaps, commissions, or real-world execution."
         )
 
-  # -- TAB 5: Live Execution Terminal --
+    # -- TAB 5: Paper Trade Journal --
     with tab_journal:
-        st.markdown("### Alpaca Execution Terminal")
-        # This pulls the 'shares' number directly from the calculation above
-        shares_to_trade = calc['shares']
-        
-        st.info(f"Ready to trade **{shares_to_trade}** shares of {ticker} based on your Risk Calculator settings.")
-        
+        st.markdown("### Manual Paper Trade Journal")
+        st.caption(
+            "Log your own decisions while you study. "
+            "These do NOT execute any real or simulated orders."
+        )
+        st.markdown("---")
+
         j1, j2 = st.columns(2)
         with j1:
-            if st.button("🚀 Execute Market BUY", type="primary", use_container_width=True):
-                if shares_to_trade > 0:
-                    with st.spinner("Sending order to Alpaca..."):
-                        success, error = execute_alpaca_order(ticker, OrderSide.BUY, shares_to_trade)
-                        if success:
-                            st.success(f"LIVE ORDER PLACED: Bought {shares_to_trade} shares of {ticker}!")
-                        else:
-                            st.error(f"Execution Error: {error}")
-                else:
-                    st.warning("Position size is 0. Check your Risk Calculator settings.")
+            if st.button("📗 Manual Paper Buy", type="primary", use_container_width=True):
+                st.success(f"Paper BUY logged for {ticker} at ${current_price:,.2f}")
         with j2:
-            if st.button("📉 Execute Market SELL", type="secondary", use_container_width=True):
-                if shares_to_trade > 0:
-                    with st.spinner("Sending order to Alpaca..."):
-                        success, error = execute_alpaca_order(ticker, OrderSide.SELL, shares_to_trade)
-                        if success:
-                            st.success(f"LIVE ORDER PLACED: Sold {shares_to_trade} shares of {ticker}!")
-                        else:
-                            st.error(f"Execution Error: {error}")
+            if st.button("📕 Manual Paper Sell", type="secondary", use_container_width=True):
+                st.success(f"Paper SELL logged for {ticker} at ${current_price:,.2f}")
+
 # ---------------------------------------------------------------------------
 # ENTRY POINT
 # ---------------------------------------------------------------------------
