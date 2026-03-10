@@ -1,117 +1,185 @@
-Gemini said
-Understood. No scraping. No manual labor. You want the machine to do the work.
-
-If you want to plug your $100 into a system right now, turn it on, and walk away, we go straight back to the Alpaca API.
-
-But here is the reality check: $100 in regular stocks like Apple or Nvidia won't move the needle. To generate actual cash flow with a small account, the algorithm has to trade high-volatility assets 24/7. That means we deploy it on Crypto.
-
-Here is a fully functional, aggressive Mean Reversion Crypto Bot. It watches Bitcoin (BTC/USD) or Ethereum (ETH/USD). When the price suddenly drops (a dip), it buys. As soon as it bounces back up by a small percentage, it sells to lock in the profit. It runs in an infinite loop.
-
-The Plug-and-Play Crypto Daemon
-Drop this directly into your Python environment. Paste your Alpaca keys at the top.
-
-Python
+from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
+import threading
 import time
 
-# ==========================================
-# 🛑 PASTE YOUR ALPACA KEYS HERE 🛑
-# ==========================================
-API_KEY = "YOUR_API_KEY"
-SECRET_KEY = "YOUR_SECRET_KEY"
-BASE_URL = "https://paper-api.alpaca.markets" # Change to live URL when using real $100
-# ==========================================
+app = Flask(__name__)
 
-alpaca = tradeapi.REST(API_KEY, SECRET_KEY, BASE_URL, api_version='v2')
+# --- Global Bot State ---
+bot_state = {
+    "is_running": False,
+    "logs": ["System initialized. Waiting for API credentials..."],
+    "api_key": "",
+    "secret_key": "",
+    "asset": "BTC/USD",
+    "in_position": False,
+    "buy_price": 0.0
+}
 
-TARGET_ASSET = "BTC/USD"
-TRADE_FRACTION = 0.95 # Uses 95% of your $100 to maximize the micro-trade
-PROFIT_TARGET_PCT = 0.01 # Sells when it makes 1% profit
-BUY_DIP_PCT = 0.005 # Buys if the price drops 0.5% in the last check
+def log_msg(msg):
+    timestamp = time.strftime('%H:%M:%S')
+    bot_state["logs"].insert(0, f"[{timestamp}] {msg}")
+    # Keep only the last 50 logs to prevent memory bloat
+    if len(bot_state["logs"]) > 50:
+        bot_state["logs"].pop()
 
-def get_current_price(symbol):
-    try:
-        # Get the latest crypto trade price
-        quote = alpaca.get_latest_crypto_trade(symbol, exchange='CBSE')
-        return quote.price
-    except Exception as e:
-        print(f"Error fetching price: {e}")
-        return None
-
-def run_crypto_bot():
-    print(f"🤖 Autonomous Crypto Daemon Initialized targeting {TARGET_ASSET}.")
+# --- The Autonomous Trading Daemon ---
+def trading_loop():
+    log_msg("🤖 Autonomous Daemon Thread Started.")
     
-    last_price = get_current_price(TARGET_ASSET)
-    in_position = False
-    buy_price = 0.0
+    # Initialize Alpaca connection
+    try:
+        alpaca = tradeapi.REST(
+            bot_state["api_key"], 
+            bot_state["secret_key"], 
+            "https://paper-api.alpaca.markets", 
+            api_version='v2'
+        )
+        account = alpaca.get_account()
+        log_msg(f"✅ Connected to Alpaca. Buying Power: ${account.buying_power}")
+    except Exception as e:
+        log_msg(f"❌ Connection Failed: {e}")
+        bot_state["is_running"] = False
+        return
 
-    while True:
-        time.sleep(60) # Scans the market every 60 seconds
-        
-        current_price = get_current_price(TARGET_ASSET)
-        if not current_price:
-            continue
+    last_price = None
+    buy_dip_pct = 0.005  # Buy on 0.5% drop
+    take_profit_pct = 0.01  # Sell on 1% gain
+
+    while bot_state["is_running"]:
+        try:
+            # Fetch current crypto price
+            quote = alpaca.get_latest_crypto_trade(bot_state["asset"], exchange='CBSE')
+            current_price = quote.price
+            log_msg(f"{bot_state['asset']} Price: ${current_price:.2f}")
+
+            if last_price is not None:
+                # --- BUY LOGIC ---
+                if not bot_state["in_position"]:
+                    price_drop = (last_price - current_price) / last_price
+                    if price_drop >= buy_dip_pct:
+                        log_msg(f"📉 Sharp dip detected. EXECUTING BUY.")
+                        buying_power = float(alpaca.get_account().cash) * 0.95
+                        if buying_power > 10:
+                            alpaca.submit_order(symbol=bot_state["asset"], notional=buying_power, side='buy', type='market', time_in_force='gtc')
+                            bot_state["buy_price"] = current_price
+                            bot_state["in_position"] = True
+                            log_msg(f"✅ BOUGHT at roughly ${bot_state['buy_price']:.2f}")
+
+                # --- SELL LOGIC ---
+                elif bot_state["in_position"]:
+                    profit_margin = (current_price - bot_state["buy_price"]) / bot_state["buy_price"]
+                    if profit_margin >= take_profit_pct:
+                        log_msg(f"📈 Profit target hit. EXECUTING SELL.")
+                        positions = alpaca.list_positions()
+                        for position in positions:
+                            if position.symbol == bot_state["asset"]:
+                                alpaca.submit_order(symbol=bot_state["asset"], qty=position.qty, side='sell', type='market', time_in_force='gtc')
+                                bot_state["in_position"] = False
+                                log_msg(f"💰 SOLD for a profit.")
+
+            last_price = current_price
+
+        except Exception as e:
+            log_msg(f"⚠️ Loop Error: {e}")
+
+        time.sleep(15) # Scan the market every 15 seconds
+
+# --- Web Dashboard Routes ---
+@app.route('/')
+def index():
+    # A sleek, dark-mode terminal UI built directly into the file
+    html_dashboard = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>QuantBot Control Center</title>
+        <style>
+            body { background-color: #0d1117; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; padding: 20px; }
+            .container { max-width: 800px; margin: auto; }
+            h1 { color: #58a6ff; }
+            input, button { padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #30363d; background: #161b22; color: white; width: 100%; box-sizing: border-box;}
+            button { background-color: #238636; cursor: pointer; font-weight: bold; }
+            button:hover { background-color: #2ea043; }
+            .btn-stop { background-color: #da3633; }
+            .btn-stop:hover { background-color: #f85149; }
+            #logs { background-color: #010409; padding: 15px; border: 1px solid #30363d; height: 300px; overflow-y: scroll; border-radius: 5px; }
+            .log-line { border-bottom: 1px solid #21262d; padding: 5px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>⚡ QuantBot Control Center</h1>
             
-        print(f"[{time.strftime('%H:%M:%S')}] {TARGET_ASSET} Price: ${current_price:.2f}")
+            <label>Alpaca API Key:</label>
+            <input type="password" id="api_key" placeholder="Paste Paper API Key here...">
+            
+            <label>Alpaca Secret Key:</label>
+            <input type="password" id="secret_key" placeholder="Paste Paper Secret Key here...">
+            
+            <button onclick="startBot()">🚀 START AUTONOMOUS TRADING</button>
+            <button class="btn-stop" onclick="stopBot()">🛑 STOP BOT</button>
 
-        # --- BUY LOGIC ---
-        if not in_position:
-            price_drop = (last_price - current_price) / last_price
-            if price_drop >= BUY_DIP_PCT:
-                print(f"📉 Sharp dip detected ({price_drop*100:.2f}%). EXECUTING BUY.")
-                try:
-                    account = alpaca.get_account()
-                    buying_power = float(account.cash) * TRADE_FRACTION
-                    
-                    if buying_power > 10: # Minimum order size
-                        alpaca.submit_order(
-                            symbol=TARGET_ASSET,
-                            notional=buying_power,
-                            side='buy',
-                            type='market',
-                            time_in_force='gtc'
-                        )
-                        buy_price = current_price
-                        in_position = True
-                        print(f"✅ BOUGHT at roughly ${buy_price:.2f}")
-                except Exception as e:
-                    print(f"❌ Buy Order Failed: {e}")
+            <h3>Live Terminal Logs</h3>
+            <div id="logs"></div>
+        </div>
 
-        # --- SELL LOGIC ---
-        elif in_position:
-            profit_margin = (current_price - buy_price) / buy_price
-            if profit_margin >= PROFIT_TARGET_PCT:
-                print(f"📈 Profit target hit ({profit_margin*100:.2f}%). EXECUTING SELL.")
-                try:
-                    # Sell the entire position
-                    positions = alpaca.list_positions()
-                    for position in positions:
-                        if position.symbol == TARGET_ASSET:
-                            alpaca.submit_order(
-                                symbol=TARGET_ASSET,
-                                qty=position.qty,
-                                side='sell',
-                                type='market',
-                                time_in_force='gtc'
-                            )
-                            in_position = False
-                            print(f"💰 SOLD for a profit.")
-                except Exception as e:
-                    print(f"❌ Sell Order Failed: {e}")
+        <script>
+            function startBot() {
+                const api = document.getElementById('api_key').value;
+                const secret = document.getElementById('secret_key').value;
+                fetch('/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({api_key: api, secret_key: secret})
+                }).then(res => res.json()).then(data => alert(data.status));
+            }
 
-        last_price = current_price # Update baseline for the next loop
+            function stopBot() {
+                fetch('/stop', {method: 'POST'})
+                .then(res => res.json()).then(data => alert(data.status));
+            }
 
-if __name__ == "__main__":
-    run_crypto_bot()
-How to turn it on:
-Copy this into a file called crypto_bot.py.
+            // Fetch logs every 2 seconds
+            setInterval(() => {
+                fetch('/logs').then(res => res.json()).then(data => {
+                    const logDiv = document.getElementById('logs');
+                    logDiv.innerHTML = data.logs.map(l => `<div class="log-line">${l}</div>`).join('');
+                });
+            }, 2000);
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html_dashboard)
 
-Grab your Alpaca API keys from your dashboard and paste them in.
+@app.route('/start', methods=['POST'])
+def start_bot():
+    data = request.json
+    if bot_state["is_running"]:
+        return jsonify({"status": "Bot is already running!"})
+    
+    bot_state["api_key"] = data.get("api_key")
+    bot_state["secret_key"] = data.get("secret_key")
+    bot_state["is_running"] = True
+    
+    # Spin up the background thread
+    thread = threading.Thread(target=trading_loop)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"status": "Bot Started Successfully."})
 
-Open your terminal and run pip install alpaca-trade-api.
+@app.route('/stop', methods=['POST'])
+def stop_bot():
+    bot_state["is_running"] = False
+    log_msg("🛑 Shutdown signal sent to daemon.")
+    return jsonify({"status": "Bot stopping on next tick."})
 
-Run python crypto_bot.py.
+@app.route('/logs', methods=['GET'])
+def get_logs():
+    return jsonify({"logs": bot_state["logs"]})
 
-It will sit silently in your terminal, pinging the market every 60 seconds. If Bitcoin flashes down, it buys. When it pops back up, it sells. It requires absolutely zero manual labor from you once you hit enter.
-
-Do you have your terminal open and ready to run the pip install command?
+if __name__ == '__main__':
+    # Runs the web app on port 8080 (Standard for Replit)
+    app.run(host='0.0.0.0', port=8080)
